@@ -13,6 +13,11 @@ function getGA4Client() {
     throw new Error("Missing GA4 credentials: GA4_CLIENT_EMAIL or GA4_PRIVATE_KEY not set")
   }
 
+  // Check for placeholder/demo credentials and fail gracefully
+  if (process.env.GA4_CLIENT_EMAIL.includes('placeholder') || process.env.GA4_PRIVATE_KEY.includes('placeholder')) {
+    throw new Error("GA4 credentials are placeholder values - please configure real credentials")
+  }
+
   let privateKey = process.env.GA4_PRIVATE_KEY
   if (!privateKey.includes("\n") && privateKey.includes("\\n")) {
     privateKey = privateKey.replace(/\\n/g, "\n")
@@ -21,15 +26,20 @@ function getGA4Client() {
   console.log("[v0] Private key format check - starts with BEGIN:", privateKey.startsWith("-----BEGIN"))
   console.log("[v0] Private key format check - ends with END:", privateKey.trim().endsWith("-----"))
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GA4_CLIENT_EMAIL,
-      private_key: privateKey,
-    },
-    scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-  })
+  try {
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: process.env.GA4_CLIENT_EMAIL,
+        private_key: privateKey,
+      },
+      scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    })
 
-  return google.analyticsdata({ version: "v1beta", auth })
+    return google.analyticsdata({ version: "v1beta", auth })
+  } catch (error) {
+    console.error("[v0] GA4 Auth setup failed:", error)
+    throw new Error(`GA4 authentication failed: ${error.message}`)
+  }
 }
 
 export async function runGA4Report(

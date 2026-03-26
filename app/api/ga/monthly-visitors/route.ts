@@ -1,13 +1,30 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { runGA4Report } from "@/lib/ga4-client"
+import { getCachedReport, setCachedReport } from "@/lib/analytics-cache"
 
 export async function GET(request: NextRequest) {
   try {
+    // Check for placeholder credentials first
+    if (!process.env.GA4_PROPERTY_ID || 
+        !process.env.GA4_CLIENT_EMAIL || 
+        !process.env.GA4_PRIVATE_KEY ||
+        process.env.GA4_CLIENT_EMAIL.includes('placeholder') || 
+        process.env.GA4_PRIVATE_KEY.includes('placeholder')) {
+      return NextResponse.json({
+        labels: [],
+        data: [],
+        error: "GA4 credentials not configured"
+      }, { status: 200 })
+    }
+
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get("startDate") || "30daysAgo"
     const endDate = searchParams.get("endDate") || "today"
 
     console.log("[v0] Fetching monthly visitors data from GA4 with date range:", startDate, "to", endDate)
+
+    const cached = await getCachedReport("monthly_visitors", startDate, endDate)
+    if (cached) return NextResponse.json(cached)
 
     // Fetch visitor data from GA4 with custom date range
     const report = await runGA4Report(
@@ -42,7 +59,9 @@ export async function GET(request: NextRequest) {
     console.log("[v0] Processed data points:", data.length)
     console.log("[v0] Sample data:", { labels: labels.slice(0, 3), data: data.slice(0, 3) })
 
-    return NextResponse.json({ labels, data })
+    const result = { labels, data }
+    await setCachedReport("monthly_visitors", startDate, endDate, result)
+    return NextResponse.json(result)
   } catch (error) {
     console.error("[v0] Error fetching GA4 monthly visitors:", error)
     return NextResponse.json(

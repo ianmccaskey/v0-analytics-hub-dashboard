@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -8,44 +8,45 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Trash2, Check } from "lucide-react"
+import { Trash2, Check, Loader2 } from "lucide-react"
 
 type Region = "north_america" | "europe" | "china"
-
-interface OverviewPreset {
-  id: string
-  name: string
-  ipExclusions: string[]
-  regionFilter: Region[]
-}
 
 export function OverviewSettings() {
   const [ipExclusions, setIpExclusions] = useState<string[]>([])
   const [ipInput, setIpInput] = useState("")
   const [ipError, setIpError] = useState("")
   const [regionFilter, setRegionFilter] = useState<Region[]>([])
-  const [presetName, setPresetName] = useState("")
-  const [presets, setPresets] = useState<OverviewPreset[]>([
-    {
-      id: "1",
-      name: "Internal Traffic Excluded – NA",
-      ipExclusions: ["192.168.1.1", "10.0.0.1"],
-      regionFilter: ["north_america"],
-    },
-    {
-      id: "2",
-      name: "EU Only",
-      ipExclusions: [],
-      regionFilter: ["europe"],
-    },
-  ])
-  const [showPresetSuccess, setShowPresetSuccess] = useState(false)
+  const [ga4PropertyId, setGa4PropertyId] = useState("")
+  const [ga4ClientEmail, setGa4ClientEmail] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState("")
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings")
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data.ip_allowlist)) setIpExclusions(data.ip_allowlist)
+      if (Array.isArray(data.region_filters)) setRegionFilter(data.region_filters)
+      if (typeof data.ga4_property_id === "string") setGa4PropertyId(data.ga4_property_id)
+      if (typeof data.ga4_client_email === "string") setGa4ClientEmail(data.ga4_client_email)
+    } catch (err) {
+      console.error("[OverviewSettings] Failed to load settings:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSettings()
+  }, [loadSettings])
 
   const validateIP = (ip: string): boolean => {
-    // IPv4 validation
     const ipv4Regex =
       /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
-    // IPv6 validation (simplified)
     const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/
     return ipv4Regex.test(ip) || ipv6Regex.test(ip)
   }
@@ -68,65 +69,103 @@ export function OverviewSettings() {
     setIpExclusions(ipExclusions.filter((ip) => ip !== ipToRemove))
   }
 
-  const handleSavePreset = () => {
-    if (!presetName.trim()) {
-      return
+  const handleRegionToggle = (region: Region) => {
+    setRegionFilter((prev) =>
+      prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region]
+    )
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveError("")
+    setSaveSuccess(false)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ip_allowlist: ipExclusions,
+          region_filters: regionFilter,
+          ...(ga4PropertyId && { ga4_property_id: ga4PropertyId }),
+          ...(ga4ClientEmail && { ga4_client_email: ga4ClientEmail }),
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to save")
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (err) {
+      console.error("[OverviewSettings] Failed to save:", err)
+      setSaveError("Failed to save settings. Please try again.")
+    } finally {
+      setSaving(false)
     }
-
-    const newPreset: OverviewPreset = {
-      id: Date.now().toString(),
-      name: presetName,
-      ipExclusions: [...ipExclusions],
-      regionFilter,
-    }
-
-    setPresets([...presets, newPreset])
-    setPresetName("")
-    setShowPresetSuccess(true)
-    setTimeout(() => setShowPresetSuccess(false), 3000)
   }
 
-  const handleApplyPreset = (preset: OverviewPreset) => {
-    setIpExclusions(preset.ipExclusions)
-    setRegionFilter(preset.regionFilter)
-  }
-
-  const handleDeletePreset = (presetId: string) => {
-    setPresets(presets.filter((p) => p.id !== presetId))
-  }
-
-  const handleResetToDefault = () => {
+  const handleReset = () => {
     setIpExclusions([])
     setRegionFilter([])
     setIpInput("")
     setIpError("")
-    setPresetName("")
-  }
-
-  const handleRegionToggle = (region: Region) => {
-    setRegionFilter((prev) => (prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region]))
   }
 
   const getRegionLabel = (regions: Region[]): string => {
     if (regions.length === 0) return "All Regions"
-
     const labels: Record<Region, string> = {
       north_america: "North America",
       europe: "Europe",
       china: "China",
     }
-
     return regions.map((r) => labels[r]).join(", ")
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="space-y-2">
         <p className="text-[15px] text-muted-foreground">
-          Configure filters and presets for your GA Overview dashboard.
+          Configure filters and settings for your GA Overview dashboard.
         </p>
       </div>
+
+      {/* GA4 Connection Settings */}
+      <Card className="rounded-[18px] border-border shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-[18px]">GA4 Connection</CardTitle>
+          <CardDescription>
+            Override the GA4 property ID and service account email stored in settings.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="ga4-property">GA4 Property ID</Label>
+              <Input
+                id="ga4-property"
+                placeholder="properties/123456789"
+                value={ga4PropertyId}
+                onChange={(e) => setGa4PropertyId(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ga4-email">Service Account Email</Label>
+              <Input
+                id="ga4-email"
+                type="email"
+                placeholder="service@project.iam.gserviceaccount.com"
+                value={ga4ClientEmail}
+                onChange={(e) => setGa4ClientEmail(e.target.value)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Two Column Layout */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -135,7 +174,8 @@ export function OverviewSettings() {
           <CardHeader>
             <CardTitle className="text-[18px]">IP Address Exclusions</CardTitle>
             <CardDescription>
-              Add IP addresses (one per line) to exclude internal or test traffic from your GA Overview metrics.
+              Add IP addresses (one per line) to exclude internal or test traffic from your GA
+              Overview metrics.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -143,7 +183,7 @@ export function OverviewSettings() {
               <Label htmlFor="ip-input">Exclude IP Addresses</Label>
               <Textarea
                 id="ip-input"
-                placeholder="192.168.1.1&#10;10.0.0.1&#10;2001:0db8:85a3::8a2e:0370:7334"
+                placeholder={"192.168.1.1\n10.0.0.1\n2001:0db8:85a3::8a2e:0370:7334"}
                 value={ipInput}
                 onChange={(e) => {
                   setIpInput(e.target.value)
@@ -189,45 +229,27 @@ export function OverviewSettings() {
             <div className="space-y-3">
               <Label>Regions</Label>
               <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="north_america"
-                    checked={regionFilter.includes("north_america")}
-                    onCheckedChange={() => handleRegionToggle("north_america")}
-                  />
-                  <label
-                    htmlFor="north_america"
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    North America
-                  </label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="europe"
-                    checked={regionFilter.includes("europe")}
-                    onCheckedChange={() => handleRegionToggle("europe")}
-                  />
-                  <label
-                    htmlFor="europe"
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    Europe
-                  </label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="china"
-                    checked={regionFilter.includes("china")}
-                    onCheckedChange={() => handleRegionToggle("china")}
-                  />
-                  <label
-                    htmlFor="china"
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    China
-                  </label>
-                </div>
+                {(
+                  [
+                    { id: "north_america", label: "North America" },
+                    { id: "europe", label: "Europe" },
+                    { id: "china", label: "China" },
+                  ] as { id: Region; label: string }[]
+                ).map(({ id, label }) => (
+                  <div key={id} className="flex items-center space-x-3">
+                    <Checkbox
+                      id={id}
+                      checked={regionFilter.includes(id)}
+                      onCheckedChange={() => handleRegionToggle(id)}
+                    />
+                    <label
+                      htmlFor={id}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      {label}
+                    </label>
+                  </div>
+                ))}
               </div>
               <p className="text-sm text-muted-foreground">
                 {regionFilter.length === 0
@@ -247,79 +269,30 @@ export function OverviewSettings() {
         </Card>
       </div>
 
-      {/* Presets Section */}
-      <Card className="rounded-[18px] border-border shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-[18px]">Overview Presets</CardTitle>
-          <CardDescription>
-            Presets save your current IP exclusions and region filter so you can quickly switch views.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Save New Preset */}
-          <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
-            <div className="space-y-2">
-              <Label htmlFor="preset-name">Preset Name</Label>
-              <Input
-                id="preset-name"
-                placeholder="e.g., Internal Traffic Excluded – NA"
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleSavePreset} disabled={!presetName.trim()} className="flex-1">
-                Save Preset
-              </Button>
-              <Button onClick={handleResetToDefault} variant="outline" className="flex-1 bg-transparent">
-                Reset to Default
-              </Button>
-            </div>
-            {showPresetSuccess && (
-              <div className="flex items-center gap-2 rounded-md bg-primary/10 p-3 text-sm text-primary">
-                <Check className="h-4 w-4" />
-                Preset saved successfully
-              </div>
-            )}
-          </div>
-
-          {/* Existing Presets */}
-          {presets.length > 0 && (
-            <div className="space-y-3">
-              <Label>Saved Presets</Label>
-              <div className="space-y-2">
-                {presets.map((preset) => (
-                  <div
-                    key={preset.id}
-                    className="flex items-center justify-between rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50"
-                  >
-                    <div className="flex-1">
-                      <p className="font-medium text-foreground">{preset.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {preset.ipExclusions.length} IP{preset.ipExclusions.length !== 1 ? "s" : ""} • Region:{" "}
-                        {getRegionLabel(preset.regionFilter)}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button onClick={() => handleApplyPreset(preset)} size="sm" variant="outline">
-                        Apply
-                      </Button>
-                      <Button
-                        onClick={() => handleDeletePreset(preset.id)}
-                        size="sm"
-                        variant="ghost"
-                        className="h-9 w-9 p-0"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* Save / Reset */}
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={saving} className="min-w-[120px]">
+          {saving ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            "Save Settings"
           )}
-        </CardContent>
-      </Card>
+        </Button>
+        <Button onClick={handleReset} variant="outline" className="bg-transparent">
+          Reset Filters
+        </Button>
+
+        {saveSuccess && (
+          <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-sm text-primary">
+            <Check className="h-4 w-4" />
+            Settings saved
+          </div>
+        )}
+        {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+      </div>
     </div>
   )
 }

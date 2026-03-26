@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { runGA4Report } from "@/lib/ga4-client"
+import { getCachedReport, setCachedReport } from "@/lib/analytics-cache"
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get("startDate") || "30daysAgo"
     const endDate = searchParams.get("endDate") || "today"
+
+    const cached = await getCachedReport("page_engagement", startDate, endDate)
+    if (cached) return NextResponse.json(cached)
 
     // Fetch top pages with engagement metrics
     const pagesReport = await runGA4Report(
@@ -78,7 +82,9 @@ export async function GET(request: Request) {
       })
     }
 
-    return NextResponse.json({ pages, entryFlows })
+    const result = { pages, entryFlows }
+    await setCachedReport("page_engagement", startDate, endDate, result)
+    return NextResponse.json(result)
   } catch (error) {
     console.error("[v0] Error fetching GA4 page engagement:", error)
     return NextResponse.json(

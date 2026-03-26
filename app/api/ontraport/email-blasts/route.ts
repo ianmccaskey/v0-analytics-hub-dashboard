@@ -1,32 +1,46 @@
-import { NextResponse } from 'next/server'
+import { NextResponse } from "next/server"
+import { desc } from "drizzle-orm"
+import { db } from "@/db"
+import { campaignMetrics } from "@/db/schema"
 
 export async function GET() {
-  const blasts = [
-    {
-      id: '123',
-      subject: 'Q4 Special: 400G Transceivers Sale',
-      sendDate: 'Nov 15, 2024',
-      totalSent: 8432,
-      openRate: '42.3%',
-      clickRate: '18.7%',
-    },
-    {
-      id: '122',
-      subject: 'New Product Launch: QSFP-DD Series',
-      sendDate: 'Nov 8, 2024',
-      totalSent: 9127,
-      openRate: '38.9%',
-      clickRate: '15.2%',
-    },
-    {
-      id: '121',
-      subject: 'VIP Exclusive: Early Access to 800G',
-      sendDate: 'Oct 28, 2024',
-      totalSent: 2341,
-      openRate: '56.7%',
-      clickRate: '24.3%',
-    },
-  ]
+  try {
+    const campaigns = await db
+      .select({
+        id: campaignMetrics.id,
+        subject: campaignMetrics.subject,
+        sendDate: campaignMetrics.sendDate,
+        totalSent: campaignMetrics.totalSent,
+        openRate: campaignMetrics.openRate,
+        clickRate: campaignMetrics.clickRate,
+        campaignName: campaignMetrics.campaignName,
+        listName: campaignMetrics.listName,
+      })
+      .from(campaignMetrics)
+      .orderBy(desc(campaignMetrics.sendDate))
+      .limit(50)
 
-  return NextResponse.json(blasts)
+    const blasts = campaigns.map((c) => ({
+      id: c.id,
+      subject: c.subject ?? c.campaignName,
+      sendDate: c.sendDate
+        ? new Date(c.sendDate).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "Unknown",
+      totalSent: c.totalSent,
+      openRate: c.openRate ? `${Number(c.openRate).toFixed(1)}%` : "0%",
+      clickRate: c.clickRate ? `${Number(c.clickRate).toFixed(1)}%` : "0%",
+    }))
+
+    return NextResponse.json(blasts)
+  } catch (error) {
+    console.error("[email-blasts] Error querying campaign_metrics:", error)
+    return NextResponse.json(
+      { error: "Failed to fetch email campaigns" },
+      { status: 500 }
+    )
+  }
 }

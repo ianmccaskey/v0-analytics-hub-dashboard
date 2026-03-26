@@ -1,13 +1,39 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { runGA4Report } from "@/lib/ga4-client"
+import { getCachedReport, setCachedReport } from "@/lib/analytics-cache"
 
 export async function GET(request: NextRequest) {
   try {
+    // Check for placeholder credentials first
+    if (!process.env.GA4_PROPERTY_ID || 
+        !process.env.GA4_CLIENT_EMAIL || 
+        !process.env.GA4_PRIVATE_KEY ||
+        process.env.GA4_CLIENT_EMAIL.includes('placeholder') || 
+        process.env.GA4_PRIVATE_KEY.includes('placeholder')) {
+      return NextResponse.json({
+        totalVisitors: 0,
+        totalSessions: 0,
+        avgTime: "0:00",
+        bounceRate: "0%",
+        visitorChange: 0,
+        sessionChange: 0,
+        avgTimeChange: 0,
+        bounceChange: 0,
+        error: "GA4 credentials not configured - using placeholder values",
+      }, { status: 200 })
+    }
+
     const { searchParams } = new URL(request.url)
     const endDate = searchParams.get("endDate") || "today"
     const startDate = searchParams.get("startDate") || "30daysAgo"
 
     console.log("[v0] Fetching GA4 summary data with date range:", startDate, "to", endDate)
+
+    // Check cache first
+    const cached = await getCachedReport("summary", startDate, endDate)
+    if (cached) {
+      return NextResponse.json(cached)
+    }
 
     // Calculate the number of days in the selected range
     const calculateDaysDiff = (start: string, end: string) => {
@@ -92,6 +118,7 @@ export async function GET(request: NextRequest) {
 
     console.log("[v0] Summary calculated:", summary)
 
+    await setCachedReport("summary", startDate, endDate, summary)
     return NextResponse.json(summary)
   } catch (error) {
     console.error("[v0] Error fetching GA4 summary:", error)

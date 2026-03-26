@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSession, signOut } from "next-auth/react"
 import { GAOverview } from "@/components/ga-overview"
 import { PageEngagement } from "@/components/page-engagement"
 import { EmailAnalytics } from "@/components/email-analytics"
@@ -9,7 +10,15 @@ import { SocialMediaEngagement } from "@/components/social-media-engagement"
 import { GAComparisons } from "@/components/ga-comparisons"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { DateRangeSelector } from "@/components/date-range-selector"
-import { BarChart3, FileText, Mail, User, Settings, Share2, TrendingUp } from "lucide-react"
+import { BarChart3, FileText, Mail, LogOut, Settings, Share2, TrendingUp } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type View =
   | "ga-overview"
@@ -20,6 +29,7 @@ type View =
   | "social-media"
 
 export default function AnalyticsHub() {
+  const { data: session } = useSession()
   const [currentView, setCurrentView] = useState<View>("ga-overview")
   const [dateRange, setDateRange] = useState<{ startDate: string; endDate: string }>({
     startDate: "",
@@ -139,9 +149,36 @@ export default function AnalyticsHub() {
                 {currentView !== "overview-settings" && currentView !== "ga-comparisons" && (
                   <DateRangeSelector onDateRangeChange={handleDateRangeChange} />
                 )}
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                  <User className="h-5 w-5 text-foreground" />
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex h-10 w-10 items-center justify-center rounded-full bg-muted hover:bg-muted/80 transition-colors">
+                      <span className="text-sm font-medium text-foreground">
+                        {session?.user?.name
+                          ? session.user.name.charAt(0).toUpperCase()
+                          : session?.user?.email?.charAt(0).toUpperCase() ?? "?"}
+                      </span>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="flex flex-col space-y-1">
+                        {session?.user?.name && (
+                          <p className="text-sm font-medium">{session.user.name}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">{session?.user?.email}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{session?.user?.role}</p>
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => signOut({ callbackUrl: "/login" })}
+                      className="cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </header>
@@ -149,12 +186,41 @@ export default function AnalyticsHub() {
           {/* View Content */}
           <div className="p-8">
             <ErrorBoundary>
-              {currentView === "ga-overview" && <GAOverview dateRange={dateRange} />}
-              {currentView === "ga-comparisons" && <GAComparisons />}
+              {currentView === "ga-overview" && (
+                <div className="bg-card p-6 rounded-lg border border-border">
+                  <h3 className="text-lg font-medium mb-4">GA4 Integration Status</h3>
+                  <p className="text-muted-foreground">
+                    GA4 analytics are currently disabled due to placeholder credentials.
+                    Configure real Google Analytics credentials in settings to enable.
+                  </p>
+                </div>
+              )}
+              {currentView === "ga-comparisons" && (
+                <div className="bg-card p-6 rounded-lg border border-border">
+                  <h3 className="text-lg font-medium mb-4">GA4 Comparisons</h3>
+                  <p className="text-muted-foreground">
+                    Available once GA4 credentials are configured.
+                  </p>
+                </div>
+              )}
               {currentView === "overview-settings" && <OverviewSettings />}
-              {currentView === "page-engagement" && <PageEngagement dateRange={dateRange} />}
+              {currentView === "page-engagement" && (
+                <div className="bg-card p-6 rounded-lg border border-border">
+                  <h3 className="text-lg font-medium mb-4">Page Engagement</h3>
+                  <p className="text-muted-foreground">
+                    Page analytics will appear once GA4 credentials are configured.
+                  </p>
+                </div>
+              )}
               {currentView === "email-analytics" && <EmailAnalytics dateRange={dateRange} />}
-              {currentView === "social-media" && <SocialMediaEngagement dateRange={dateRange} />}
+              {currentView === "social-media" && (
+                <div className="bg-card p-6 rounded-lg border border-border">
+                  <h3 className="text-lg font-medium mb-4">Social Media Engagement</h3>
+                  <p className="text-muted-foreground">
+                    Social analytics will appear once integrations are configured.
+                  </p>
+                </div>
+              )}
             </ErrorBoundary>
           </div>
         </main>
